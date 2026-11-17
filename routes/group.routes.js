@@ -7,6 +7,8 @@ import {
   leaveGroup,
   joinByInviteCode,
   toggleAdminOnlyMessaging,
+  updateGroupProfile,
+  deleteGroup,
 } from "../controllers/group.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
@@ -14,6 +16,8 @@ const router = express.Router();
 
 router.post("/create", protect, createGroup);
 router.get("/:groupId", protect, getGroupDetails);
+router.put("/:groupId", protect, updateGroupProfile);
+router.delete("/:groupId", protect, deleteGroup);
 router.post("/:groupId/members", protect, addMembers);
 router.delete("/:groupId/members/:memberId", protect, removeMember);
 router.post("/:groupId/leave", protect, leaveGroup);

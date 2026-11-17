@@ -74,6 +74,10 @@ const conversationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    disappearingMode: {
+      isEnabled: { type: Boolean, default: false },
+      duration: { type: Number, default: 0 }, // in seconds: 30, 60, 3600, 86400, 604800
+    },
     inviteCode: {
       type: String,
       unique: true,

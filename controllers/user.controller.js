@@ -1,7 +1,7 @@
 import User from "../models/user.model.js";
 
 /**
- * Search users by Raaz ID (@username) or name
+ * Search users by SmileyX ID (SX...), @username, or name
  * Mobile numbers are strictly hidden from public search for privacy!
  */
 export const searchUsers = async (req, res) => {
@@ -14,16 +14,17 @@ export const searchUsers = async (req, res) => {
 
     const cleanQuery = query.trim().replace(/^@+/, "");
 
-    // Search username or fullName, excluding current user
+    // Search username, fullName, or smileyId, excluding current user
     const users = await User.find({
       _id: { $ne: req.user._id },
       isBanned: false,
       $or: [
         { username: { $regex: cleanQuery, $options: "i" } },
+        { smileyId: { $regex: cleanQuery, $options: "i" } },
         { fullName: { $regex: cleanQuery, $options: "i" } },
       ],
     })
-      .select("fullName username profileImage bio isOnline lastSeen privacySettings")
+      .select("fullName username smileyId profileImage bio isOnline lastSeen privacySettings")
       .limit(20);
 
     // Apply Ghost Mode / privacy rules
@@ -37,6 +38,7 @@ export const searchUsers = async (req, res) => {
         _id: u._id,
         fullName: u.fullName,
         username: u.username,
+        smileyId: u.smileyId,
         profileImage: u.profileImage,
         bio: u.bio,
         isOnline: showOnline ? u.isOnline : false,
@@ -54,18 +56,23 @@ export const searchUsers = async (req, res) => {
 };
 
 /**
- * Get public profile of a user by username or ID
+ * Get public profile of a user by username, SmileyX ID, or ID
  */
 export const getUserProfile = async (req, res) => {
   try {
     const { id } = req.params;
-    const cleanId = id.replace(/^@+/, "").toLowerCase();
+    const cleanId = id.replace(/^@+/, "").trim();
 
     let user;
     if (cleanId.match(/^[0-9a-fA-F]{24}$/)) {
       user = await User.findById(cleanId);
     } else {
-      user = await User.findOne({ username: cleanId });
+      user = await User.findOne({
+        $or: [
+          { username: cleanId.toLowerCase() },
+          { smileyId: cleanId.toUpperCase() },
+        ],
+      });
     }
 
     if (!user) {
@@ -93,8 +100,11 @@ export const getUserProfile = async (req, res) => {
         _id: user._id,
         fullName: user.fullName,
         username: user.username,
+        smileyId: user.smileyId,
         profileImage: user.profileImage,
         bio: user.bio,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
         phone: showPhone ? user.phone : undefined,
         email: isSelf ? user.email : undefined,
         isOnline: showOnline ? user.isOnline : false,

@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import { getNextSmileyId } from "./counter.model.js";
 
 const emergencyContactSchema = new mongoose.Schema(
   {
@@ -93,6 +94,17 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       index: true,
     },
+    smileyId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      index: true,
+    },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
     phone: {
       type: String,
       required: false,
@@ -161,7 +173,7 @@ const userSchema = new mongoose.Schema(
     state: { type: String, default: "" },
     country: { type: String, default: "India" },
     pincode: { type: String, default: "" },
-    profileCompleted: { type: Boolean, default: true },
+    profileCompleted: { type: Boolean, default: false },
     emergencyContacts: { type: [emergencyContactSchema], default: [] },
     medicalInfo: { type: medicalInfoSchema, default: () => ({}) },
     currentLocation: { type: locationSchema, default: () => ({}) },
@@ -204,6 +216,9 @@ const userSchema = new mongoose.Schema(
 userSchema.pre("save", async function () {
   if (this.phone) {
     this.mobileNumber = this.phone;
+  }
+  if (!this.smileyId) {
+    this.smileyId = await getNextSmileyId();
   }
   if (!this.isModified("password") || !this.password) return;
   const salt = await bcrypt.genSalt(10);

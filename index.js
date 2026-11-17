@@ -217,6 +217,18 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Screenshot detection notification in conversation
+  socket.on("screenshotTaken", ({ conversationId, userId, userName }) => {
+    if (conversationId) {
+      socket.to(conversationId.toString()).emit("screenshotAlert", {
+        conversationId,
+        userId,
+        userName,
+        timestamp: new Date(),
+      });
+    }
+  });
+
   // Disconnection handler
   socket.on("disconnect", async () => {
     console.log("❌ [Socket] Disconnected:", socket.id);

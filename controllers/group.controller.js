@@ -221,3 +221,59 @@ export const toggleAdminOnlyMessaging = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Update Group Profile (Name, Avatar, Description)
+ */
+export const updateGroupProfile = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { name, avatar, description } = req.body;
+
+    const group = await Conversation.findById(groupId);
+    if (!group) return res.status(404).json({ success: false, message: "Group not found" });
+
+    if (!group.admins.includes(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Only admins can update group info" });
+    }
+
+    if (name) group.name = name.trim();
+    if (avatar !== undefined) group.avatar = avatar;
+    if (description !== undefined) group.description = description.trim();
+
+    await group.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Group updated successfully",
+      group,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Delete Group (Admin Authorized)
+ */
+export const deleteGroup = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+
+    const group = await Conversation.findById(groupId);
+    if (!group) return res.status(404).json({ success: false, message: "Group not found" });
+
+    if (!group.admins.includes(req.user._id)) {
+      return res.status(403).json({ success: false, message: "Only admins can delete this group" });
+    }
+
+    await Conversation.findByIdAndDelete(groupId);
+
+    return res.status(200).json({
+      success: true,
+      message: "Group deleted successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};

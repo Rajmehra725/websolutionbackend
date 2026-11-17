@@ -4,6 +4,10 @@ import {
   generateRefreshToken,
 } from "../utils/generateToken.js";
 import jwt from "jsonwebtoken";
+import {
+  sendEmailOTP,
+  verifyEmailOTP,
+} from "../services/emailOtp.service.js";
 
 const sanitizeUser = (user) => {
   const obj = user.toObject ? user.toObject() : { ...user };
@@ -41,6 +45,202 @@ export const checkUsernameAvailability = async (req, res) => {
       success: true,
       available: !existingUser,
       message: existingUser ? `Username @${username} is already taken` : `Username @${username} is available`,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Send Email OTP for Registration
+ */
+export const sendEmailVerificationOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email address is required" });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ success: false, message: "Please enter a valid email address" });
+    }
+
+    const existingUser = await User.findOne({ email: cleanEmail });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is already registered. Please login.",
+      });
+    }
+
+    const result = await sendEmailOTP(cleanEmail, "registration");
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Verify Email OTP for Registration
+ */
+export const verifyEmailVerificationOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: "Email and verification code are required" });
+    }
+
+    const result = await verifyEmailOTP(email, otp, "registration");
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Send Password Reset OTP
+ */
+export const sendForgotPasswordOtp = async (req, res) => {
+  try {
+    const { email, identifier } = req.body;
+    const lookup = (email || identifier || "").trim().toLowerCase();
+
+    if (!lookup) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+
+    const user = await User.findOne({
+      $or: [{ email: lookup }, { username: lookup.replace(/^@+/, "") }],
+    });
+
+    if (!user || !user.email) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found matching this identifier",
+      });
+    }
+
+    const result = await sendEmailOTP(user.email, "password_reset");
+    return res.status(200).json({
+      ...result,
+      email: user.email,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Reset Password using verified OTP
+ */
+export const resetPasswordWithOtp = async (req, res) => {
+  try {
+    const { email, otp, newPassword, confirmPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Email, verification code, and new password are required",
+      });
+    }
+
+    if (confirmPassword && newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match",
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long",
+      });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const verifyResult = await verifyEmailOTP(cleanEmail, otp, "password_reset");
+    if (!verifyResult.success) {
+      return res.status(400).json(verifyResult);
+    }
+
+    const user = await User.findOne({ email: cleanEmail }).select("+password");
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Password reset successful. You can now login.",
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Complete / Setup Profile (After Registration)
+ */
+export const setupProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    let { fullName, username, profileImage, bio, dateOfBirth, gender } = req.body;
+
+    if (!fullName || !fullName.trim()) {
+      return res.status(400).json({ success: false, message: "Full Name is required" });
+    }
+
+    if (!username || !username.trim()) {
+      return res.status(400).json({ success: false, message: "Username is required" });
+    }
+
+    const cleanUsername = username.replace(/^@+/, "").trim().toLowerCase();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(cleanUsername)) {
+      return res.status(400).json({
+        success: false,
+        message: "Username must be 3-20 characters and contain only letters, numbers, and underscores",
+      });
+    }
+
+    const existingUser = await User.findOne({
+      username: cleanUsername,
+      _id: { $ne: userId },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: `Username @${cleanUsername} is already taken`,
+      });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    user.fullName = fullName.trim();
+    user.username = cleanUsername;
+    if (profileImage !== undefined) user.profileImage = profileImage;
+    if (bio !== undefined) user.bio = bio.trim();
+    if (dateOfBirth) user.dateOfBirth = new Date(dateOfBirth);
+    if (gender) user.gender = gender;
+    user.profileCompleted = true;
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile completed successfully!",
+      user: sanitizeUser(user),
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -143,6 +343,15 @@ export const register = async (req, res) => {
       }
     }
 
+    // If OTP provided, verify it
+    const { otp } = req.body;
+    if (otp && cleanEmail) {
+      const otpCheck = await verifyEmailOTP(cleanEmail, otp, "registration");
+      if (!otpCheck.success) {
+        return res.status(400).json(otpCheck);
+      }
+    }
+
     // Check if first user to grant super_admin, otherwise user
     const totalUsers = await User.countDocuments();
     const role = totalUsers === 0 ? "super_admin" : "user";
@@ -156,6 +365,8 @@ export const register = async (req, res) => {
       mobileNumber: cleanPhone || undefined,
       password,
       profileImage: profileImage || "",
+      emailVerified: true,
+      profileCompleted: Boolean(fullName && username),
       role,
       isPrimarySuperAdmin,
       isOnline: true,
@@ -202,12 +413,14 @@ export const login = async (req, res) => {
     // Clean identifier
     const cleanUsername = rawId.replace(/^@+/, "").toLowerCase();
     const cleanEmail = rawId.toLowerCase();
+    const cleanSmileyId = rawId.toUpperCase();
 
-    // Query by username OR email OR phone
+    // Query by username OR email OR smileyId OR phone
     const user = await User.findOne({
       $or: [
         { username: cleanUsername },
         { email: cleanEmail },
+        { smileyId: cleanSmileyId },
         { phone: rawId },
         { mobileNumber: rawId },
       ],

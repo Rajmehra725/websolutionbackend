@@ -55,6 +55,16 @@ const messageSchema = new mongoose.Schema(
       type: [attachmentSchema],
       default: [],
     },
+    isViewOnce: {
+      type: Boolean,
+      default: false,
+    },
+    viewedBy: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Message",

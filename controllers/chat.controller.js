@@ -126,6 +126,7 @@ export const getConversations = async (req, res) => {
           isPinned: conv.pinnedBy?.includes(userId),
           isArchived: conv.archivedBy?.includes(userId),
           isMuted: conv.mutedBy?.includes(userId),
+          disappearingMode: conv.disappearingMode,
           participantsCount: conv.participants?.length || 0,
         };
       })
@@ -201,7 +202,7 @@ export const getMessages = async (req, res) => {
 export const sendMessage = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { text, messageType = "text", attachments = [], replyTo, expiresAt } = req.body;
+    const { text, messageType = "text", attachments = [], replyTo, expiresAt, isViewOnce = false } = req.body;
     const userId = req.user._id;
 
     const conversation = await Conversation.findOne({
@@ -223,6 +224,12 @@ export const sendMessage = async (req, res) => {
       });
     }
 
+    // Auto-calculate expiration if disappearing mode is active
+    let calculatedExpiresAt = expiresAt ? new Date(expiresAt) : null;
+    if (conversation.disappearingMode?.isEnabled && conversation.disappearingMode?.duration > 0) {
+      calculatedExpiresAt = new Date(Date.now() + conversation.disappearingMode.duration * 1000);
+    }
+
     const message = new Message({
       conversation: conversationId,
       sender: userId,
@@ -231,9 +238,11 @@ export const sendMessage = async (req, res) => {
       text: text ? text.trim() : "",
       messageType,
       attachments: Array.isArray(attachments) ? attachments : [],
+      isViewOnce: Boolean(isViewOnce),
+      viewedBy: [],
       replyTo: replyTo || null,
       status: "sent",
-      expiresAt: expiresAt ? new Date(expiresAt) : null,
+      expiresAt: calculatedExpiresAt,
     });
 
     await message.save();
@@ -599,6 +608,7 @@ export const getConversationDetails = async (req, res) => {
         isPinned: conversation.pinnedBy?.includes(userId),
         isMuted: conversation.mutedBy?.includes(userId),
         isArchived: conversation.archivedBy?.includes(userId),
+        disappearingMode: conversation.disappearingMode,
         sharedMedia,
       },
     });
@@ -721,6 +731,225 @@ export const markDelivered = async (req, res) => {
     }
 
     return res.status(200).json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Access / Consume View Once Media (Server-Side Enforced)
+ */
+export const consumeViewOnceMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ success: false, message: "Message not found" });
+    }
+
+    if (!message.isViewOnce) {
+      return res.status(400).json({ success: false, message: "Message is not a View Once message" });
+    }
+
+    // Verify user is in conversation
+    const conversation = await Conversation.findOne({
+      _id: message.conversation,
+      participants: userId,
+    });
+    if (!conversation) {
+      return res.status(403).json({ success: false, message: "Unauthorized access to this conversation" });
+    }
+
+    const isSender = message.sender.toString() === userId.toString();
+    const alreadyViewed = message.viewedBy?.some((id) => id.toString() === userId.toString());
+
+    if (!isSender && alreadyViewed) {
+      return res.status(410).json({
+        success: false,
+        expired: true,
+        message: "This View Once media has already been viewed and is expired.",
+      });
+    }
+
+    if (!isSender && !alreadyViewed) {
+      message.viewedBy = message.viewedBy || [];
+      message.viewedBy.push(userId);
+      await message.save();
+
+      const io = req.app.get("io");
+      if (io) {
+        io.to(message.conversation.toString()).emit("viewOnceOpened", {
+          messageId: message._id,
+          conversationId: message.conversation,
+          openedBy: userId,
+          openedAt: new Date(),
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "View Once media unlocked",
+      attachments: message.attachments,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Update Disappearing Messages timer
+ */
+export const updateDisappearingTimer = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const { isEnabled, duration } = req.body;
+    const userId = req.user._id;
+
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      participants: userId,
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: "Conversation not found or unauthorized" });
+    }
+
+    conversation.disappearingMode = {
+      isEnabled: Boolean(isEnabled),
+      duration: Number(duration) || 0,
+    };
+
+    await conversation.save();
+
+    // Create a system message in the chat
+    const durationLabel =
+      duration === 30
+        ? "30 seconds"
+        : duration === 60
+        ? "1 minute"
+        : duration === 3600
+        ? "1 hour"
+        : duration === 86400
+        ? "24 hours"
+        : duration === 604800
+        ? "7 days"
+        : `${duration} seconds`;
+
+    const systemText = isEnabled
+      ? `${req.user.fullName} turned on disappearing messages. Messages will disappear after ${durationLabel}.`
+      : `${req.user.fullName} turned off disappearing messages.`;
+
+    const sysMsg = new Message({
+      conversation: conversationId,
+      sender: userId,
+      senderName: "SmileyX System",
+      text: systemText,
+      messageType: "system",
+      status: "seen",
+    });
+    await sysMsg.save();
+
+    conversation.lastMessage = sysMsg._id;
+    conversation.lastMessageText = systemText;
+    conversation.lastMessageAt = sysMsg.createdAt;
+    await conversation.save();
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(conversationId.toString()).emit("disappearingTimerChanged", {
+        conversationId,
+        disappearingMode: conversation.disappearingMode,
+        systemMessage: sysMsg,
+      });
+      io.to(conversationId.toString()).emit("newMessage", sysMsg);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Disappearing timer updated",
+      disappearingMode: conversation.disappearingMode,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle Pin Conversation for current user
+ */
+export const togglePinConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    const conv = await Conversation.findOne({ _id: conversationId, participants: userId });
+    if (!conv) return res.status(404).json({ success: false, message: "Conversation not found" });
+
+    const isPinned = conv.pinnedBy?.includes(userId);
+    if (isPinned) {
+      conv.pinnedBy = conv.pinnedBy.filter((id) => id.toString() !== userId.toString());
+    } else {
+      conv.pinnedBy = conv.pinnedBy || [];
+      conv.pinnedBy.push(userId);
+    }
+    await conv.save();
+
+    return res.status(200).json({ success: true, isPinned: !isPinned });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle Archive Conversation for current user
+ */
+export const toggleArchiveConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    const conv = await Conversation.findOne({ _id: conversationId, participants: userId });
+    if (!conv) return res.status(404).json({ success: false, message: "Conversation not found" });
+
+    const isArchived = conv.archivedBy?.includes(userId);
+    if (isArchived) {
+      conv.archivedBy = conv.archivedBy.filter((id) => id.toString() !== userId.toString());
+    } else {
+      conv.archivedBy = conv.archivedBy || [];
+      conv.archivedBy.push(userId);
+    }
+    await conv.save();
+
+    return res.status(200).json({ success: true, isArchived: !isArchived });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle Mute Conversation for current user
+ */
+export const toggleMuteConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user._id;
+
+    const conv = await Conversation.findOne({ _id: conversationId, participants: userId });
+    if (!conv) return res.status(404).json({ success: false, message: "Conversation not found" });
+
+    const isMuted = conv.mutedBy?.includes(userId);
+    if (isMuted) {
+      conv.mutedBy = conv.mutedBy.filter((id) => id.toString() !== userId.toString());
+    } else {
+      conv.mutedBy = conv.mutedBy || [];
+      conv.mutedBy.push(userId);
+    }
+    await conv.save();
+
+    return res.status(200).json({ success: true, isMuted: !isMuted });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
