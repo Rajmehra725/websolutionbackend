@@ -8,6 +8,7 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "provision:superadmin": "node scripts/provision_superadmin.js",
+    "test:production": "node tests/verify_smileyx_production.js",
     "test:verify": "node tests/verify_raazchat.js",
     "test:smileyx": "node tests/verify_smileyx.js"
   },

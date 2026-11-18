@@ -75,10 +75,31 @@ export const startCapsuleScheduler = () => {
           await capsule.save();
         }
       }
+
+      // Cleanup expired disappearing messages
+      const expiredMessages = await Message.find({
+        expiresAt: { $ne: null, $lte: now },
+      });
+
+      if (expiredMessages.length > 0) {
+        for (const expMsg of expiredMessages) {
+          if (io) {
+            io.to(expMsg.conversation.toString()).emit("messageDeleted", {
+              messageId: expMsg._id,
+              conversationId: expMsg.conversation,
+              reason: "expired",
+            });
+          }
+        }
+        const deletedResult = await Message.deleteMany({
+          expiresAt: { $ne: null, $lte: now },
+        });
+        console.log(`[Scheduler] 🧹 Cleaned up ${deletedResult.deletedCount} expired disappearing messages`);
+      }
     } catch (err) {
-      console.error("[Scheduler] Error in Time Capsule cron:", err);
+      console.error("[Scheduler] Error in persistent scheduler:", err);
     }
   });
 
-  console.log("⏰ Time Capsule Persistent Scheduler initialized");
+  console.log("⏰ SmileyX Persistent Scheduler & Disappearing Cleaner initialized");
 };
