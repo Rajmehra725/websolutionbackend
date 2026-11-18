@@ -173,7 +173,12 @@ const userSchema = new mongoose.Schema(
     state: { type: String, default: "" },
     country: { type: String, default: "India" },
     pincode: { type: String, default: "" },
-    profileCompleted: { type: Boolean, default: false },
+    profileCompleted: { type: Boolean, default: true },
+    accountStatus: {
+      type: String,
+      enum: ["active", "suspended", "banned", "pending"],
+      default: "active",
+    },
     emergencyContacts: { type: [emergencyContactSchema], default: [] },
     medicalInfo: { type: medicalInfoSchema, default: () => ({}) },
     currentLocation: { type: locationSchema, default: () => ({}) },

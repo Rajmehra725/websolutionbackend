@@ -103,87 +103,25 @@ export const verifyEmailVerificationOtp = async (req, res) => {
 };
 
 /**
- * Send Password Reset OTP
+ * Send Password Reset (STATUS: PENDING)
  */
 export const sendForgotPasswordOtp = async (req, res) => {
-  try {
-    const { email, identifier } = req.body;
-    const lookup = (email || identifier || "").trim().toLowerCase();
-
-    if (!lookup) {
-      return res.status(400).json({ success: false, message: "Email is required" });
-    }
-
-    const user = await User.findOne({
-      $or: [{ email: lookup }, { username: lookup.replace(/^@+/, "") }],
-    });
-
-    if (!user || !user.email) {
-      return res.status(404).json({
-        success: false,
-        message: "No account found matching this identifier",
-      });
-    }
-
-    const result = await sendEmailOTP(user.email, "password_reset");
-    return res.status(200).json({
-      ...result,
-      email: user.email,
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
+  return res.status(501).json({
+    success: false,
+    status: "pending",
+    message: "Password recovery via email is currently pending future implementation.",
+  });
 };
 
 /**
- * Reset Password using verified OTP
+ * Reset Password (STATUS: PENDING)
  */
 export const resetPasswordWithOtp = async (req, res) => {
-  try {
-    const { email, otp, newPassword, confirmPassword } = req.body;
-
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({
-        success: false,
-        message: "Email, verification code, and new password are required",
-      });
-    }
-
-    if (confirmPassword && newPassword !== confirmPassword) {
-      return res.status(400).json({
-        success: false,
-        message: "Passwords do not match",
-      });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: "New password must be at least 6 characters long",
-      });
-    }
-
-    const cleanEmail = email.trim().toLowerCase();
-    const verifyResult = await verifyEmailOTP(cleanEmail, otp, "password_reset");
-    if (!verifyResult.success) {
-      return res.status(400).json(verifyResult);
-    }
-
-    const user = await User.findOne({ email: cleanEmail }).select("+password");
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    user.password = newPassword;
-    await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Password reset successful. You can now login.",
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: error.message });
-  }
+  return res.status(501).json({
+    success: false,
+    status: "pending",
+    message: "Password reset is currently pending future implementation.",
+  });
 };
 
 /**
@@ -248,36 +186,52 @@ export const setupProfile = async (req, res) => {
 };
 
 /**
- * Register a new SmileyX user (Email, Username, Password - No OTP)
+ * Register a new SmileyX user (Email + Password only, Automatic Profile Creation)
  */
 export const register = async (req, res) => {
   try {
     let {
       fullName,
-      username,
       email,
-      phone,
+      username,
       password,
       confirmPassword,
       profileImage,
-      termsAccepted,
+      bio,
+      dateOfBirth,
+      gender,
     } = req.body;
 
-    if (!fullName || !username || !password) {
+    // Validate required fields
+    if (!fullName || !fullName.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Full Name, Username, and Password are required",
+        message: "Full Name is required",
       });
     }
 
-    if (!email && !phone) {
+    if (!email || !email.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Please provide an email address or mobile number",
+        message: "Email address is required",
       });
     }
 
-    if (confirmPassword && password !== confirmPassword) {
+    if (!username || !username.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Username is required",
+      });
+    }
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is required",
+      });
+    }
+
+    if (confirmPassword !== undefined && password !== confirmPassword) {
       return res.status(400).json({
         success: false,
         message: "Password and Confirm Password do not match",
@@ -291,10 +245,27 @@ export const register = async (req, res) => {
       });
     }
 
-    // Clean username (remove leading @ and whitespace, lowercase)
-    username = username.replace(/^@+/, "").trim().toLowerCase();
+    // Email validation
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address",
+      });
+    }
 
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+    // Check duplicate email
+    const existingEmail = await User.findOne({ email: cleanEmail });
+    if (existingEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is already registered. Please login.",
+      });
+    }
+
+    // Clean username (remove leading @ and whitespace, lowercase)
+    const cleanUsername = username.replace(/^@+/, "").trim().toLowerCase();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(cleanUsername)) {
       return res.status(400).json({
         success: false,
         message:
@@ -302,71 +273,33 @@ export const register = async (req, res) => {
       });
     }
 
-    // Check if username is already taken
-    const existingUsername = await User.findOne({ username });
+    // Check duplicate username
+    const existingUsername = await User.findOne({ username: cleanUsername });
     if (existingUsername) {
       return res.status(400).json({
         success: false,
-        message: `Username @${username} is already taken. Please choose another.`,
+        message: `Username @${cleanUsername} is already taken. Please choose another.`,
       });
     }
 
-    // Validate email if provided
-    let cleanEmail = "";
-    if (email) {
-      cleanEmail = email.trim().toLowerCase();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-        return res.status(400).json({
-          success: false,
-          message: "Please enter a valid email address",
-        });
-      }
-      const existingEmail = await User.findOne({ email: cleanEmail });
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email address is already registered. Please login.",
-        });
-      }
-    }
-
-    // Check if phone number is already registered (if provided)
-    let cleanPhone = "";
-    if (phone) {
-      cleanPhone = phone.trim();
-      const existingPhone = await User.findOne({ phone: cleanPhone });
-      if (existingPhone) {
-        return res.status(400).json({
-          success: false,
-          message: "Mobile number is already registered. Please login.",
-        });
-      }
-    }
-
-    // If OTP provided, verify it
-    const { otp } = req.body;
-    if (otp && cleanEmail) {
-      const otpCheck = await verifyEmailOTP(cleanEmail, otp, "registration");
-      if (!otpCheck.success) {
-        return res.status(400).json(otpCheck);
-      }
-    }
-
-    // Check if first user to grant super_admin, otherwise user
+    // Assign super_admin if first user, else user
     const totalUsers = await User.countDocuments();
     const role = totalUsers === 0 ? "super_admin" : "user";
     const isPrimarySuperAdmin = totalUsers === 0;
 
+    // Automatic Profile Creation with permanent SmileyX ID (via pre-save hook)
     const user = new User({
       fullName: fullName.trim(),
-      username,
+      username: cleanUsername,
       email: cleanEmail,
-      phone: cleanPhone || undefined,
-      mobileNumber: cleanPhone || undefined,
       password,
       profileImage: profileImage || "",
-      emailVerified: true,
-      profileCompleted: Boolean(fullName && username),
+      bio: bio ? bio.trim() : "Hey there! I am using SmileyX.",
+      gender: gender || "Other",
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      emailVerified: false, // Explicit: no fake email verification claims
+      accountStatus: "active", // Explicit account status
+      profileCompleted: true, // Profile automatically completed on registration
       role,
       isPrimarySuperAdmin,
       isOnline: true,
