@@ -30,6 +30,14 @@ import cardRoutes from "./routes/cardRoutes.js"; // Legacy preservation
 import postRoutes from "./routes/post.routes.js";
 import moodRoutes from "./routes/mood.routes.js";
 import notificationRoutes from "./routes/notification.routes.js";
+import articleRoutes from "./routes/article.routes.js";
+import categoryRoutes from "./routes/category.routes.js";
+import tagRoutes from "./routes/tag.routes.js";
+import authorRoutes from "./routes/author.routes.js";
+import adRoutes from "./routes/ad.routes.js";
+import contactRoutes from "./routes/contact.routes.js";
+import mediaRoutes from "./routes/media.routes.js";
+import siteSettingRoutes from "./routes/siteSetting.routes.js";
 
 const app = express();
 
@@ -86,23 +94,30 @@ app.use("/api/chat-play", chatPlayRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/articles", articleRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/tags", tagRoutes);
+app.use("/api/authors", authorRoutes);
+app.use("/api/ads", adRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/media", mediaRoutes);
+app.use("/api/site-settings", siteSettingRoutes);
 app.use("/api/cards", cardRoutes); // Legacy
 
 // Health Check
 app.get("/", (req, res) => {
   res.json({
     success: true,
-    platform: "SmileyX API",
-    tagline: "Your Moments. Your Feelings. Your World.",
-    concept: "Share a Moment. Express a Feeling. Keep a Memory. Stay Connected.",
-    version: "2.0.0",
+    platform: "RAAZ Publishing & Knowledge API",
+    brand: "RAAZ",
+    tagline: "ज्ञान का आसान समाधान",
+    version: "2.1.0",
     theme: {
-      primary: "#2563EB",
-      secondary: "#38BDF8",
-      accent: "#06B6D4",
-      background: "#F8FAFF",
+      primary: "#1e40af", // Restrained Editorial Blue
+      secondary: "#0284c7",
+      background: "#FFFFFF",
     },
-    status: "Active & Real-Time Ready 🚀",
+    status: "Active & Production Ready 🚀",
   });
 });
 

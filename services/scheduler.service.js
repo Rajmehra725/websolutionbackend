@@ -2,6 +2,7 @@ import cron from "node-cron";
 import TimeCapsule from "../models/timeCapsule.model.js";
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+import Article from "../models/article.model.js";
 import { io } from "../index.js";
 
 /**
@@ -73,6 +74,22 @@ export const startCapsuleScheduler = () => {
             capsule.status = "failed";
           }
           await capsule.save();
+        }
+      }
+
+      // Publish scheduled articles whose scheduledAt has arrived
+      const scheduledArticles = await Article.find({
+        status: "scheduled",
+        scheduledAt: { $ne: null, $lte: now },
+        deletedAt: null,
+      });
+
+      if (scheduledArticles.length > 0) {
+        for (const art of scheduledArticles) {
+          art.status = "published";
+          art.publishedAt = now;
+          await art.save();
+          console.log(`[Scheduler] 📰 Auto-published scheduled article: "${art.title}" (${art.slug})`);
         }
       }
 
