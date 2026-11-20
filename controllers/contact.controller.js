@@ -5,7 +5,17 @@ import ContactMessage from "../models/contactMessage.model.js";
  */
 export const submitContactMessage = async (req, res) => {
   try {
-    const { name, email, subject = "", message } = req.body;
+    const {
+      name,
+      email,
+      subject = "",
+      message,
+      phone = "",
+      company = "",
+      inquiryType = "general",
+      budget = "",
+      serviceInterest = "",
+    } = req.body;
 
     if (!name || !email || !message) {
       return res.status(400).json({
@@ -27,6 +37,11 @@ export const submitContactMessage = async (req, res) => {
       email: cleanEmail,
       subject: subject.trim(),
       message: message.trim(),
+      phone: phone.trim(),
+      company: company.trim(),
+      inquiryType: inquiryType || "general",
+      budget: budget || "",
+      serviceInterest: serviceInterest || "",
       ipAddress: req.ip || "",
     });
 

@@ -22,6 +22,30 @@ const contactMessageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    inquiryType: {
+      type: String,
+      enum: ["general", "project_inquiry", "security_audit", "consultation", "editorial"],
+      default: "general",
+      index: true,
+    },
+    phone: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    company: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    serviceInterest: {
+      type: String,
+      default: "",
+    },
+    budget: {
+      type: String,
+      default: "",
+    },
     isRead: {
       type: Boolean,
       default: false,
