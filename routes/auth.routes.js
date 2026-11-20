@@ -16,12 +16,16 @@ import {
   sendForgotPasswordOtp,
   resetPasswordWithOtp,
   setupProfile,
+  getSetupStatus,
+  bootstrapInitialAdmin,
 } from "../controllers/auth.controller.js";
 import { protect } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
 // Public routes
+router.get("/setup-status", getSetupStatus);
+router.post("/bootstrap-setup", bootstrapInitialAdmin);
 router.get("/check-username", checkUsernameAvailability);
 router.post("/send-verification-otp", sendEmailVerificationOtp);
 router.post("/verify-registration-otp", verifyEmailVerificationOtp);

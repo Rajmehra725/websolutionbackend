@@ -9,17 +9,25 @@ import AuditLog from "../models/auditLog.model.js";
 async function provisionSuperAdmin() {
   try {
     await connectDB();
-    console.log("Connected to MongoDB.");
+    console.log("Connected to MongoDB for Super Admin provisioning.");
 
-    const targetIdentifier = process.argv[2] || process.env.SUPERADMIN_USERNAME || "raazadmin";
-    const defaultPassword = process.env.SUPERADMIN_PASSWORD || "RaazChat@Admin2026";
-    const defaultPhone = process.env.SUPERADMIN_PHONE || "+919999999999";
+    const targetUsername = (
+      process.argv[2] ||
+      process.env.SUPERADMIN_USERNAME ||
+      "raazadmin"
+    )
+      .toLowerCase()
+      .replace(/^@+/, "");
+    const defaultPassword =
+      process.argv[3] || process.env.SUPERADMIN_PASSWORD || "RaazAdmin@2026";
+    const defaultPhone = process.env.SUPERADMIN_PHONE || "+919876543210";
+    const defaultEmail = process.env.SUPERADMIN_EMAIL || "admin@raaz.in";
 
     let adminUser = await User.findOne({
       $or: [
-        { username: targetIdentifier.toLowerCase().replace(/^@+/, "") },
-        { phone: targetIdentifier },
-        { role: "super_admin" },
+        { username: targetUsername },
+        { email: defaultEmail },
+        { phone: defaultPhone },
       ],
     });
 
@@ -28,38 +36,50 @@ async function provisionSuperAdmin() {
       adminUser.isPrimarySuperAdmin = true;
       adminUser.isBanned = false;
       adminUser.isSuspended = false;
+      adminUser.password = defaultPassword; // Trigger bcrypt hash pre-save
       await adminUser.save();
 
-      console.log(`✅ User @${adminUser.username} (${adminUser.phone}) successfully provisioned as SUPER ADMIN.`);
-      
+      console.log(
+        `✅ Updated existing user @${adminUser.username} (${adminUser.phone}) as SUPER ADMIN with updated password.`
+      );
+
       await AuditLog.create({
         admin: adminUser._id,
         action: "PROVISION_SUPER_ADMIN",
         targetType: "User",
         targetId: adminUser._id.toString(),
-        details: { username: adminUser.username, note: "Server-side provisioning script execution" },
+        details: {
+          username: adminUser.username,
+          note: "Super admin role & password updated",
+        },
         ipAddress: "127.0.0.1",
       });
     } else {
       adminUser = new User({
-        fullName: "RaazChat Super Admin",
-        username: "raazadmin",
+        fullName: "RAAZ Platform Administrator",
+        username: targetUsername,
         phone: defaultPhone,
+        email: defaultEmail,
         password: defaultPassword,
         role: "super_admin",
         isPrimarySuperAdmin: true,
-        bio: "Platform Administrator for RaazChat Pro.",
+        bio: "Chief Administrator for RAAZ Publishing Platform.",
       });
 
       await adminUser.save();
-      console.log(`✅ Created new Super Admin account: @raazadmin (${defaultPhone})`);
+      console.log(
+        `✅ Created new Super Admin account: @${targetUsername} (${defaultPhone})`
+      );
 
       await AuditLog.create({
         admin: adminUser._id,
         action: "PROVISION_SUPER_ADMIN",
         targetType: "User",
         targetId: adminUser._id.toString(),
-        details: { username: "raazadmin", note: "Initial server provisioning script creation" },
+        details: {
+          username: targetUsername,
+          note: "Initial super admin bootstrap created",
+        },
         ipAddress: "127.0.0.1",
       });
     }

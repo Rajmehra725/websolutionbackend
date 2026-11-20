@@ -1,4 +1,7 @@
 import User from "../models/user.model.js";
+import Category from "../models/category.model.js";
+import Setting from "../models/setting.model.js";
+import AuditLog from "../models/auditLog.model.js";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -646,4 +649,126 @@ export const verifyOTP = async (req, res) => {
     message: "Please complete registration",
     data: { phone },
   });
+};
+
+/**
+ * Check if initial platform setup is required (no super_admin exists)
+ */
+export const getSetupStatus = async (req, res) => {
+  try {
+    const adminCount = await User.countDocuments({ role: "super_admin" });
+    return res.status(200).json({
+      success: true,
+      setupNeeded: adminCount === 0,
+      hasAdmin: adminCount > 0,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Secure one-time initial platform bootstrap for the owner
+ * Once a super_admin exists, this endpoint is permanently locked.
+ */
+export const bootstrapInitialAdmin = async (req, res) => {
+  try {
+    const existingSuperAdmin = await User.findOne({ role: "super_admin" });
+    if (existingSuperAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: "Initial admin setup has already been completed. This endpoint is permanently disabled.",
+      });
+    }
+
+    const { username, password, fullName, phone, email } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Username and password are required.",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 8 characters.",
+      });
+    }
+
+    const cleanUsername = username.replace(/^@+/, "").toLowerCase().trim();
+    const cleanEmail = email ? email.toLowerCase().trim() : "admin@raaz.in";
+
+    const admin = new User({
+      fullName: fullName ? fullName.trim() : "RAAZ Platform Administrator",
+      username: cleanUsername,
+      email: cleanEmail,
+      phone: phone ? phone.trim() : "+919876543210",
+      password,
+      role: "super_admin",
+      isPrimarySuperAdmin: true,
+      bio: "Chief Administrator of RAAZ Knowledge Platform.",
+    });
+
+    await admin.save();
+
+    // Ensure Default Core Categories exist
+    const categoriesData = [
+      { name: "Technology", nameHindi: "तकनीक", slug: "technology", description: "Latest technology updates and gadgets.", descriptionHindi: "नवीनतम तकनीक, गैजेट्स और तकनीकी जानकारी।", order: 1 },
+      { name: "Artificial Intelligence", nameHindi: "आर्टिफिशियल इंटेलिजेंस", slug: "ai", description: "AI tools and machine learning.", descriptionHindi: "एआई टूल्स और मशीन लर्निंग।", order: 2 },
+      { name: "Mobile Tips & Troubleshooting", nameHindi: "मोबाइल टिप्स और समाधान", slug: "mobile", description: "Android & iPhone tips.", descriptionHindi: "एंड्रॉइड और आईफोन टिप्स और समाधान।", order: 3 },
+      { name: "Apps & Software", nameHindi: "ऐप्स और सॉफ्टवेयर", slug: "apps", description: "Best apps and software tutorials.", descriptionHindi: "सर्वश्रेष्ठ ऐप्स और सॉफ्टवेयर।", order: 4 },
+      { name: "Internet & Networking", nameHindi: "इंटरनेट और नेटवर्किंग", slug: "internet", description: "Wi-Fi speeds and internet solutions.", descriptionHindi: "इंटरनेट और नेटवर्किंग की जानकारी।", order: 5 },
+      { name: "Computers & Laptops", nameHindi: "कंप्यूटर और लैपटॉप", slug: "computer", description: "PC hardware and Windows maintenance.", descriptionHindi: "कंप्यूटर और लैपटॉप मेंटेनेंस।", order: 6 },
+      { name: "Digital Safety & Cyber Awareness", nameHindi: "डिजिटल सुरक्षा", slug: "digital-safety", description: "Cyber security and online fraud protection.", descriptionHindi: "साइबर सुरक्षा और ऑनलाइन फ्रॉड से बचाव।", order: 7 },
+      { name: "Practical How-to Guides", nameHindi: "उपयोगी गाइड", slug: "how-to", description: "Step-by-step practical guides.", descriptionHindi: "उपयोगी प्रैक्टिकल गाइड।", order: 8 },
+    ];
+
+    for (const cat of categoriesData) {
+      const exists = await Category.findOne({ slug: cat.slug });
+      if (!exists) {
+        await Category.create(cat);
+      }
+    }
+
+    // Default Site Settings
+    await Setting.findOneAndUpdate(
+      { key: "SITE_NAME" },
+      { key: "SITE_NAME", value: "RAAZ", type: "string", description: "Official Site Brand", category: "general" },
+      { upsert: true }
+    );
+    await Setting.findOneAndUpdate(
+      { key: "SITE_TAGLINE" },
+      { key: "SITE_TAGLINE", value: "ज्ञान का आसान समाधान", type: "string", description: "Brand Tagline", category: "general" },
+      { upsert: true }
+    );
+    await Setting.findOneAndUpdate(
+      { key: "DEFAULT_LOCALE" },
+      { key: "DEFAULT_LOCALE", value: "hi", type: "string", description: "Default language", category: "general" },
+      { upsert: true }
+    );
+
+    await AuditLog.create({
+      admin: admin._id,
+      action: "INITIAL_ADMIN_BOOTSTRAP",
+      targetType: "User",
+      targetId: admin._id.toString(),
+      details: { username: admin.username, note: "Initial secure setup bootstrap executed" },
+      ipAddress: req.ip || "127.0.0.1",
+    });
+
+    const token = generateAccessToken(admin);
+    const refreshToken = generateRefreshToken(admin);
+
+    return res.status(201).json({
+      success: true,
+      message: "Initial Super Admin provisioned successfully. Setup is now permanently locked.",
+      token,
+      refreshToken,
+      user: sanitizeUser(admin),
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };
