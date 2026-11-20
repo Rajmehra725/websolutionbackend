@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import express from "express";
+import mongoose from "mongoose";
 import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -112,6 +113,7 @@ app.get("/", (req, res) => {
     brand: "RAAZ",
     tagline: "ज्ञान का आसान समाधान",
     version: "2.1.0",
+    database: mongoose.connection?.name || "disconnected",
     theme: {
       primary: "#1e40af", // Restrained Editorial Blue
       secondary: "#0284c7",
