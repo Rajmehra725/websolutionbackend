@@ -4,6 +4,8 @@ dotenv.config();
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
@@ -57,12 +59,40 @@ export const io = new Server(server, {
 app.set("io", io);
 
 // ================= MIDDLEWARE =================
+// Security HTTP headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+
 app.use(
   cors({
     origin: "*",
     credentials: true,
   })
 );
+
+// General API rate limiter to protect against volumetric abuse
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests from this IP, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// Auth login brute-force protection
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many login attempts, please try again in 15 minutes." },
+});
+app.use("/api/auth/login", loginLimiter);
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
